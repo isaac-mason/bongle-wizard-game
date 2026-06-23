@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "nodes": {
+    "root": {
+      "realm": "shared",
+      "uuid": "4df7ca2e-fab7-4c70-b4d4-52ca214916d3",
+      "name": "Root",
+      "traits": [],
+      "children": []
+    }
+  }
+}

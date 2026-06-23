@@ -1,0 +1,9 @@
+pickup.ogg
+
+A trimmed, slightly pitch-shifted (~ -6%) mono excerpt of the item-pickup
+sound from VoxeLibre (formerly MineClone2), mod `mcl_item_entity`
+(item_drop_pickup.ogg).
+
+Source:  https://git.minetest.land/VoxeLibre/VoxeLibre
+License: GNU General Public License v3.0 (GPL-3.0)
+Attribution: VoxeLibre contributors.

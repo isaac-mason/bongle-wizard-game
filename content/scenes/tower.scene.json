@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "nodes": {
+    "root": {
+      "realm": "shared",
+      "uuid": "67bcb5dd-33f2-4538-8213-1a92f55ba055",
+      "name": "Root",
+      "traits": [],
+      "children": []
+    }
+  },
+  "chunks": {
+    "-1,0,-1": {
+      "palette": [
+        "air",
+        "starter:stone"
+      ],
+      "blocks": "H4sIAAAAAAAAA+3OMQ0AAAgDMPBvGhMkO9Yq6FBs0wEAAAAAAAAAnhyi0zHSACAAAA==",
+      "light": "H4sIAAAAAAAAA+3OMQ0AAAgDsPlXiwRMkHCsqYFmKJb3AQAAAAAAAAAnFiJehf4AIAAA"
+    },
+    "-1,0,0": {
+      "palette": [
+        "air",
+        "starter:stone"
+      ],
+      "blocks": "H4sIAAAAAAAAA+3JIQEAAAgDMOhfmgbHXW12E23u9wEAAAAAAACAhgNiO3GUACAAAA==",
+      "light": "H4sIAAAAAAAAA+3JMQ0AAAgDsPlXiwQc8JDsano2c8rzAQAAAAAAAICCBeQ8/dMAIAAA"
+    },
+    "0,0,-1": {
+      "palette": [
+        "air",
+        "starter:stone"
+      ],
+      "blocks": "H4sIAAAAAAAAA+3BAQ0AAAwCoL9/ac3hgGPaNwAAAAAAAAD7AprjBwMAIAAA",
+      "light": "H4sIAAAAAAAAA+3OAQkAAAjEQPunNYIYQoTndgVWTbTt+wEAAAAAAACAcwMs/PmjACAAAA=="
+    },
+    "0,0,0": {
+      "palette": [
+        "air",
+        "starter:stone"
+      ],
+      "blocks": "H4sIAAAAAAAAA+3JIQEAAAgDsL9/aRqAxGx2TbO5HgAAAAAAAAD4N6HwfFsAIAAA",
+      "light": "H4sIAAAAAAAAA+3JMREAAAjEMPyrRQKHARh/STO2tj58HwAAAAAAAACIG5S7OV4AIAAA"
+    }
+  }
+}

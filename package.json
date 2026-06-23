@@ -1,0 +1,14 @@
+{
+    "name": "bongle-wizard-game",
+    "private": true,
+    "version": "0.0.0",
+    "type": "module",
+    "scripts": {
+        "edit": "bongle edit",
+        "build": "bongle build",
+        "start": "bongle start"
+    },
+    "dependencies": {
+        "bongle": "github:isaac-mason/bongle#main"
+    }
+}
