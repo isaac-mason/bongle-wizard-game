@@ -93,7 +93,6 @@ import {
 } from 'bongle';
 import { RIG_6BONE_ARM_RIGHT, RIG_6BONE_HAND_RIGHT, RIG_6BONE_HEAD } from 'bongle/avatar/rig';
 import { blocks, particlePresets, sounds } from 'bongle/starter';
-import { floodFillGround } from './nav';
 import { degreesToRadians, mat4, quat, type Quat, vec3, type Vec3, type Vec4 } from 'mathcat';
 import { castRay, CastRayStatus, createClosestCastRayCollector, createDefaultCastRaySettings, filter as crashFilter } from 'crashcat';
 
@@ -2124,7 +2123,7 @@ script(WorldTrait, 'combat-npcs', (ctx) => {
     // the reachable cell nearest the centre, so it drifts back. null only when
     // genuinely boxed in (no walkable neighbours at all).
     const pickWanderTarget = (pos: Vec3): Vec3 | null => {
-        const reachable = floodFillGround(ctx.voxels, worldToCell(pos), WANDER_FLOOD_MAX);
+        const reachable = voxelNav.floodFillLand(ctx.voxels, worldToCell(pos), WANDER_FLOOD_MAX);
         if (reachable.length <= 1) return null;
         const distSqToCenter = (c: Vec3): number => {
             const dx = c[0] + 0.5 - MAP_CENTER[0];
