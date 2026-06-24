@@ -110,85 +110,30 @@ script(WorldTrait, 'environment', (ctx) => {
 });
 
 // ── world generation ────────────────────────────────────────────────
-// the arena is a seeded fractal-noise heightmap. the analytic surface height is the
-// shared source of truth — spawn placement, gems, and NPCs all snap to the ground
-// through it; the `worldgen` script below paints that heightmap into voxels. fully
-// deterministic from SEED, so every room (each round's rooms.recreate) rebuilds the
-// identical map and server + client agree.
+// the arena is a seeded fractal-noise heightmap, painted into voxels by the
+// `worldgen` script below (deterministic from its SEED, so every room — each round's
+// rooms.recreate — rebuilds the identical map and server + client agree). at runtime,
+// ground queries raycast the LIVE voxels (`groundHeightAt`) so spawns/gems/npcs land
+// on the real surface after voxel destruction, not a stale analytic height.
 
 // arena dimensions: a square [0, MAP_SIZE) in x/z, play centred on MAP_CENTER, y up from 0.
 const MAP_SIZE = 128;
 const MAP_CENTER: [number, number] = [MAP_SIZE / 2, MAP_SIZE / 2];
 
-// heightmap tunables.
-const SEED = 1337; // hardcoded — change for a different map
-const BASE_HEIGHT = 10; // ground floor — lowest valley surface
-const HILL_AMP = 12; // peak-to-valley swing added by the noise
-const NOISE_SCALE = 44; // blocks per noise lattice cell — bigger = broader hills
-const OCTAVES = 4; // fractal detail layers
-const PERSISTENCE = 0.5; // amplitude falloff per octave
-const LACUNARITY = 2; // frequency growth per octave
-
-// integer lattice hash → [0,1). pure function of (ix, iz, salt) — no global state,
-// so sampling order never affects the result.
-function hash2(ix: number, iz: number, salt: number): number {
-    let h = (Math.imul(ix | 0, 0x27d4eb2d) ^ Math.imul(iz | 0, 0x85ebca6b) ^ Math.imul(salt | 0, 0xc2b2ae35)) >>> 0;
-    h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) >>> 0;
-    h = Math.imul(h ^ (h >>> 13), 0x297a2d39) >>> 0;
-    return ((h ^ (h >>> 16)) >>> 0) / 0x1_0000_0000;
-}
-
-// quintic smoothstep (Perlin's fade) for C2-continuous interpolation.
-const fade = (t: number): number => t * t * t * (t * (t * 6 - 15) + 10);
-
-// bilinearly-interpolated value noise at (x, z) on the integer lattice.
-function valueNoise(x: number, z: number, salt: number): number {
-    const x0 = Math.floor(x);
-    const z0 = Math.floor(z);
-    const u = fade(x - x0);
-    const v = fade(z - z0);
-    const v00 = hash2(x0, z0, salt);
-    const v10 = hash2(x0 + 1, z0, salt);
-    const v01 = hash2(x0, z0 + 1, salt);
-    const v11 = hash2(x0 + 1, z0 + 1, salt);
-    const a = v00 + (v10 - v00) * u;
-    const b = v01 + (v11 - v01) * u;
-    return a + (b - a) * v;
-}
-
-// fractal sum of octaves, normalised to [0,1).
-function fbm(x: number, z: number): number {
-    let amplitude = 1;
-    let frequency = 1;
-    let sum = 0;
-    let norm = 0;
-    for (let o = 0; o < OCTAVES; o++) {
-        sum += amplitude * valueNoise(x * frequency, z * frequency, SEED + o * 101);
-        norm += amplitude;
-        amplitude *= PERSISTENCE;
-        frequency *= LACUNARITY;
-    }
-    return sum / norm;
-}
-
-// surface height (top grass y) at a column — the single source of truth for where
-// the ground sits, so spawns can snap to it.
-function surfaceHeight(x: number, z: number): number {
-    return Math.floor(BASE_HEIGHT + fbm(x / NOISE_SCALE, z / NOISE_SCALE) * HILL_AMP);
-}
-
 // the canonical "what y is the ground at (x, z)?" for any spawn decision. raycasts
-// down through the live voxels — so it sees trees + (later) stamped structures, not
-// just the noise — and returns the surface y. falls back to the analytic height if
-// the ray finds nothing (off the map, or before terrain exists). the probe starts
-// above all terrain and crucially NOT on a chunk boundary: a y multiple of 16 makes
-// the DDA's first exit test resolve to t=0 → an immediate false miss.
+// down through the LIVE voxels — so it sees trees, stamped structures, and terrain
+// carved away by destruction — and returns the surface y. the probe starts above all
+// terrain and crucially NOT on a chunk boundary: a y multiple of 16 makes the DDA's
+// first exit test resolve to t=0 → an immediate false miss. on a miss (off the map,
+// or before terrain exists) it returns a fixed floor — a real in-bounds spawn always
+// hits, since worldgen runs first.
 const _groundRay = createVoxelRaycastResult();
 const GROUND_PROBE_Y = 200.5;
 const GROUND_PROBE_DIST = 260;
+const GROUND_FALLBACK_Y = 1; // off-map / pre-terrain only — no live voxels to hit
 function groundHeightAt(ctx: ScriptContext, x: number, z: number): number {
     raycastVoxels(_groundRay, ctx.voxels, ctx.voxels.registry, x, GROUND_PROBE_Y, z, 0, -1, 0, GROUND_PROBE_DIST, 0);
-    return _groundRay.hit ? _groundRay.py : surfaceHeight(x, z) + 1;
+    return _groundRay.hit ? _groundRay.py : GROUND_FALLBACK_Y;
 }
 
 // the terrain pass — paints the heightmap into voxels (stone → dirt → grass, a light
@@ -198,6 +143,63 @@ function groundHeightAt(ctx: ScriptContext, x: number, z: number): number {
 // live in this scope since nothing outside generation needs them.
 script(WorldTrait, 'worldgen', (ctx) => {
     if (!env.server) return;
+
+    // ── heightmap (worldgen-local) — fractal value-noise surface. nothing outside
+    // generation needs it: runtime ground queries raycast the live voxels instead. ──
+    const SEED = 1337; // hardcoded — change for a different map
+    const BASE_HEIGHT = 10; // ground floor — lowest valley surface
+    const HILL_AMP = 12; // peak-to-valley swing added by the noise
+    const NOISE_SCALE = 44; // blocks per noise lattice cell — bigger = broader hills
+    const OCTAVES = 4; // fractal detail layers
+    const PERSISTENCE = 0.5; // amplitude falloff per octave
+    const LACUNARITY = 2; // frequency growth per octave
+
+    // integer lattice hash → [0,1). pure function of (ix, iz, salt) — no global state,
+    // so sampling order never affects the result.
+    function hash2(ix: number, iz: number, salt: number): number {
+        let h = (Math.imul(ix | 0, 0x27d4eb2d) ^ Math.imul(iz | 0, 0x85ebca6b) ^ Math.imul(salt | 0, 0xc2b2ae35)) >>> 0;
+        h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) >>> 0;
+        h = Math.imul(h ^ (h >>> 13), 0x297a2d39) >>> 0;
+        return ((h ^ (h >>> 16)) >>> 0) / 0x1_0000_0000;
+    }
+
+    // quintic smoothstep (Perlin's fade) for C2-continuous interpolation.
+    const fade = (t: number): number => t * t * t * (t * (t * 6 - 15) + 10);
+
+    // bilinearly-interpolated value noise at (x, z) on the integer lattice.
+    function valueNoise(x: number, z: number, salt: number): number {
+        const x0 = Math.floor(x);
+        const z0 = Math.floor(z);
+        const u = fade(x - x0);
+        const v = fade(z - z0);
+        const v00 = hash2(x0, z0, salt);
+        const v10 = hash2(x0 + 1, z0, salt);
+        const v01 = hash2(x0, z0 + 1, salt);
+        const v11 = hash2(x0 + 1, z0 + 1, salt);
+        const a = v00 + (v10 - v00) * u;
+        const b = v01 + (v11 - v01) * u;
+        return a + (b - a) * v;
+    }
+
+    // fractal sum of octaves, normalised to [0,1).
+    function fbm(x: number, z: number): number {
+        let amplitude = 1;
+        let frequency = 1;
+        let sum = 0;
+        let norm = 0;
+        for (let o = 0; o < OCTAVES; o++) {
+            sum += amplitude * valueNoise(x * frequency, z * frequency, SEED + o * 101);
+            norm += amplitude;
+            amplitude *= PERSISTENCE;
+            frequency *= LACUNARITY;
+        }
+        return sum / norm;
+    }
+
+    // surface height (top grass y) at a column — drives the terrain paint below.
+    function surfaceHeight(x: number, z: number): number {
+        return Math.floor(BASE_HEIGHT + fbm(x / NOISE_SCALE, z / NOISE_SCALE) * HILL_AMP);
+    }
 
     // resolved block keys (defaultKey, not raw strings).
     const STONE = blocks.stone.defaultKey();
