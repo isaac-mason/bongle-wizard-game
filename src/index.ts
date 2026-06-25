@@ -88,7 +88,7 @@ import {
     traverse,
     UILayer,
     use,
-    voxelNav,
+    nav,
     WorldTrait,
 } from 'bongle';
 import { RIG_6BONE_ARM_RIGHT, RIG_6BONE_HAND_RIGHT, RIG_6BONE_HEAD } from 'bongle/avatar/rig';
@@ -1909,7 +1909,7 @@ script(WorldTrait, 'gems', (ctx) => {
 
 // ── server: NPC dummy wizards — spawn + steering ────────────────────
 // spawns a few killable dummy wizards at fixed homes (onInit), then each tick
-// steers them. pathfinding is voxelNav (in the core lib); the *steering* half
+// steers them. pathfinding is nav (in the core lib); the *steering* half
 // lives here — repath to the nearest combatant on a timer and walk the
 // waypoints (look + move + jump), or circle-strafe + fire when in range.
 
@@ -2080,7 +2080,7 @@ script(WorldTrait, 'combat-npcs', (ctx) => {
     // wander + gem-seek so they all use one A* + step-up walker.
     const followPath = (brain: Brain, controller: CharacterControllerTrait, pos: Vec3, goalCell: Vec3, doRepath: boolean): 'arrived' | 'traveling' => {
         if (doRepath) {
-            brain.path = voxelNav.findGroundPath(ctx.voxels, worldToCell(pos), goalCell, { maxIterations: NPC_PATH_MAX_ITERATIONS }) ?? [];
+            brain.path = nav.findGroundPath(ctx.voxels, worldToCell(pos), goalCell, { maxIterations: NPC_PATH_MAX_ITERATIONS }) ?? [];
             brain.waypoint = 1; // skip our own starting cell
         }
         while (brain.waypoint < brain.path.length) {
@@ -2125,7 +2125,7 @@ script(WorldTrait, 'combat-npcs', (ctx) => {
     // the reachable cell nearest the centre, so it drifts back. null only when
     // genuinely boxed in (no walkable neighbours at all).
     const pickWanderTarget = (pos: Vec3): Vec3 | null => {
-        const reachable = voxelNav.floodFillLand(ctx.voxels, worldToCell(pos), WANDER_FLOOD_MAX);
+        const reachable = nav.floodFillLand(ctx.voxels, worldToCell(pos), WANDER_FLOOD_MAX);
         if (reachable.length <= 1) return null;
         const distSqToCenter = (c: Vec3): number => {
             const dx = c[0] + 0.5 - MAP_CENTER[0];
