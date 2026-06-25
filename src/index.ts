@@ -2080,7 +2080,8 @@ script(WorldTrait, 'combat-npcs', (ctx) => {
     // wander + gem-seek so they all use one A* + step-up walker.
     const followPath = (brain: Brain, controller: CharacterControllerTrait, pos: Vec3, goalCell: Vec3, doRepath: boolean): 'arrived' | 'traveling' => {
         if (doRepath) {
-            brain.path = nav.findGroundPath(ctx.voxels, worldToCell(pos), goalCell, { maxIterations: NPC_PATH_MAX_ITERATIONS }) ?? [];
+            const rawPath = nav.findPath(ctx.voxels, worldToCell(pos), goalCell, nav.groundActions, { maxIterations: NPC_PATH_MAX_ITERATIONS });
+            brain.path = rawPath ? nav.smoothPath(ctx.voxels, rawPath, nav.groundShortcut()) : [];
             brain.waypoint = 1; // skip our own starting cell
         }
         while (brain.waypoint < brain.path.length) {
@@ -2125,7 +2126,7 @@ script(WorldTrait, 'combat-npcs', (ctx) => {
     // the reachable cell nearest the centre, so it drifts back. null only when
     // genuinely boxed in (no walkable neighbours at all).
     const pickWanderTarget = (pos: Vec3): Vec3 | null => {
-        const reachable = nav.floodFillLand(ctx.voxels, worldToCell(pos), WANDER_FLOOD_MAX);
+        const reachable = nav.floodFill(ctx.voxels, worldToCell(pos), nav.groundActions, WANDER_FLOOD_MAX);
         if (reachable.length <= 1) return null;
         const distSqToCenter = (c: Vec3): number => {
             const dx = c[0] + 0.5 - MAP_CENTER[0];
