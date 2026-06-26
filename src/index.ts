@@ -2,20 +2,16 @@ import {
     AabbBodyMotionType,
     AabbBodyTrait,
     aabbBody,
-    addChild,
     addCharacter,
+    addChild,
     addTrait,
     assignAvatar,
-    loadAvatar,
-    randomDisplayName,
-    releaseAvatar,
-    sampleAvatars,
     BLOCK_AIR,
     broadcast,
-    chat,
     CharacterControllerTrait,
     CharacterTrait,
     CLIENT_TO_SERVER,
+    chat,
     cloneModel,
     command,
     createNode,
@@ -38,33 +34,39 @@ import {
     isMobile,
     isMouseDown,
     listen,
+    loadAvatar,
     MeshTrait,
     matchmaking,
     model,
     type Node,
+    nav,
     onDispose,
     onFrame,
     onInit,
     onJoin,
     onPostAnimate,
     onTick,
+    type ParticleHandle,
     PlayerControllerTrait,
     PlayerTrait,
     pack,
-    type ParticleHandle,
     particleUpdate,
     playAt,
     playMono,
     query,
+    randomDisplayName,
     raycastVoxels,
+    releaseAvatar,
     removeTrait,
     resolveCamera,
     rooms,
-    script,
     type ScriptContext,
-    send,
     SERVER_TO_CLIENT,
-    sprite,
+    type SpriteHandle,
+    SpriteTrait,
+    sampleAvatars,
+    script,
+    send,
     setBlock,
     setEnvironment,
     setEnvironmentTime,
@@ -73,28 +75,32 @@ import {
     setMeshLitMin,
     setMeshTint,
     setPosition,
-    sound,
     setQuaternion,
     setScale,
     setWorldPosition,
     setWorldQuaternion,
+    sound,
     spawnParticle,
-    type SpriteHandle,
-    SpriteTrait,
+    sprite,
     sync,
+    type TraitType,
     TransformTrait,
     trait,
-    type TraitType,
     traverse,
     UILayer,
     use,
-    nav,
     WorldTrait,
 } from 'bongle';
 import { RIG_6BONE_ARM_RIGHT, RIG_6BONE_HAND_RIGHT, RIG_6BONE_HEAD } from 'bongle/avatar/rig';
 import { blocks, particlePresets, sounds } from 'bongle/starter';
-import { degreesToRadians, mat4, quat, type Quat, vec3, type Vec3, type Vec4 } from 'mathcat';
-import { castRay, CastRayStatus, createClosestCastRayCollector, createDefaultCastRaySettings, filter as crashFilter } from 'crashcat';
+import {
+    CastRayStatus,
+    castRay,
+    filter as crashFilter,
+    createClosestCastRayCollector,
+    createDefaultCastRaySettings,
+} from 'crashcat';
+import { degreesToRadians, mat4, type Quat, quat, type Vec3, type Vec4, vec3 } from 'mathcat';
 
 matchmaking({ maxPlayers: 32 });
 
@@ -284,7 +290,8 @@ script(WorldTrait, 'worldgen', (ctx) => {
                 if (hash2(cx, cz, SEED ^ 0x2ee) >= TREE_CHANCE) continue;
                 const jx = cx + 1 + Math.floor(hash2(cx, cz, SEED ^ 0x111) * (TREE_GRID - 2));
                 const jz = cz + 1 + Math.floor(hash2(cx, cz, SEED ^ 0x222) * (TREE_GRID - 2));
-                if (jx < TREE_MARGIN || jx >= MAP_SIZE - TREE_MARGIN || jz < TREE_MARGIN || jz >= MAP_SIZE - TREE_MARGIN) continue;
+                if (jx < TREE_MARGIN || jx >= MAP_SIZE - TREE_MARGIN || jz < TREE_MARGIN || jz >= MAP_SIZE - TREE_MARGIN)
+                    continue;
                 // keep the centre spawn clearing tree-free so players/npcs don't spawn in a trunk.
                 const dxC = jx - MAP_CENTER[0];
                 const dzC = jz - MAP_CENTER[1];
@@ -355,7 +362,8 @@ type StatLevels = Record<StatKey, number>;
 // stopwatch (fire rate), footprints (move). the panel tints each to its stat
 // colour; the collapsed rail is just icon + level.
 const STAT_ICON_PATHS: Record<StatKey, string> = {
-    maxHealth: '<path d="M20.42 4.58a5.4 5.4 0 0 0-7.65 0l-.77.78-.77-.78a5.4 5.4 0 0 0-7.65 0C1.46 6.7 1.33 10.28 4 13l8 8 8-8c2.67-2.72 2.54-6.3.42-8.42z"/>',
+    maxHealth:
+        '<path d="M20.42 4.58a5.4 5.4 0 0 0-7.65 0l-.77.78-.77-.78a5.4 5.4 0 0 0-7.65 0C1.46 6.7 1.33 10.28 4 13l8 8 8-8c2.67-2.72 2.54-6.3.42-8.42z"/>',
     damage: '<polyline points="14.5 17.5 3 6 3 3 6 3 17.5 14.5"/><line x1="13" x2="19" y1="19" y2="13"/><line x1="16" x2="20" y1="16" y2="20"/><line x1="19" x2="21" y1="21" y2="19"/>',
     speed: '<path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/>',
     blast: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
@@ -677,11 +685,8 @@ sync(GemTrait, 'current', {
 // folded onto WizardTrait — every combatant is a wizard.)
 const AliveTrait = trait('alive');
 
-// marker + respawn home for non-player targets.
+// marks a server-driven (non-player) wizard + carries its stat-build archetype.
 const NpcTrait = trait('npc', {
-    homeX: 0,
-    homeY: 0,
-    homeZ: 0,
     archetype: 0, // index into NPC_ARCHETYPES — its stat-allocation build (server-only)
 });
 
@@ -693,11 +698,29 @@ const NpcTrait = trait('npc', {
 // matching local bolt. broadcast to every client including the owner (no prediction).
 // `radius` is the bolt's splash damageRadius (what the `blast` stat drives) — the
 // client scales the impact burst by it so a bigger blast looks proportionally bigger.
-const ImpactCommand = command('wizards.impact', SERVER_TO_CLIENT, pack.object({ id: pack.uint32(), pos: pack.list(pack.float32(), 3), fizzle: pack.boolean(), block: pack.uint32(), radius: pack.float32() }));
-const DamageCommand = command('wizards.damage', SERVER_TO_CLIENT, pack.object({ pos: pack.list(pack.float32(), 3), amount: pack.float32(), tier: pack.int8() })); // tier ≥ 0 colours the pop as that gem; -1 for wizards
+const ImpactCommand = command(
+    'wizards.impact',
+    SERVER_TO_CLIENT,
+    pack.object({
+        id: pack.uint32(),
+        pos: pack.list(pack.float32(), 3),
+        fizzle: pack.boolean(),
+        block: pack.uint32(),
+        radius: pack.float32(),
+    }),
+);
+const DamageCommand = command(
+    'wizards.damage',
+    SERVER_TO_CLIENT,
+    pack.object({ pos: pack.list(pack.float32(), 3), amount: pack.float32(), tier: pack.int8() }),
+); // tier ≥ 0 colours the pop as that gem; -1 for wizards
 const DeathCommand = command('wizards.death', SERVER_TO_CLIENT, pack.object({ pos: pack.list(pack.float32(), 3) }));
 // server → client: a gem shattered at `pos`; `tier` selects the burst colour/size.
-const GemDeathCommand = command('wizards.gem-death', SERVER_TO_CLIENT, pack.object({ pos: pack.list(pack.float32(), 3), tier: pack.uint8() }));
+const GemDeathCommand = command(
+    'wizards.gem-death',
+    SERVER_TO_CLIENT,
+    pack.object({ pos: pack.list(pack.float32(), 3), tier: pack.uint8() }),
+);
 // client → server: spend an upgrade point on the stat at index `stat` (into STAT_KEYS).
 const UpgradeStat = command('wizards.upgrade', CLIENT_TO_SERVER, pack.object({ stat: pack.uint8() }));
 // a projectile was cast — the entire wire footprint of a (server-simulated) bolt.
@@ -705,15 +728,19 @@ const UpgradeStat = command('wizards.upgrade', CLIENT_TO_SERVER, pack.object({ s
 // ImpactCommand. broadcast to EVERY client including the owner — bolts are fully
 // server-authoritative (no prediction), so the owner renders its own from this too.
 // `ownerId` lets the owner route the muzzle/recoil to its first-person viewmodel.
-const ProjectileCast = command('wizards.projectile-cast', SERVER_TO_CLIENT, pack.object({
-    id: pack.uint32(),
-    ownerId: pack.uint32(),
-    origin: pack.list(pack.float32(), 3),
-    aim: pack.list(pack.float32(), 4),
-    speed: pack.float32(),
-    spawnTime: pack.float64(),
-    damage: pack.uint8(), // drives the bolt's visual size (purely cosmetic — collision is the raycast)
-}));
+const ProjectileCast = command(
+    'wizards.projectile-cast',
+    SERVER_TO_CLIENT,
+    pack.object({
+        id: pack.uint32(),
+        ownerId: pack.uint32(),
+        origin: pack.list(pack.float32(), 3),
+        aim: pack.list(pack.float32(), 4),
+        speed: pack.float32(),
+        spawnTime: pack.float64(),
+        damage: pack.uint8(), // drives the bolt's visual size (purely cosmetic — collision is the raycast)
+    }),
+);
 // server → one client: a knockback impulse for that player's own wizard. velocity is
 // owner-authored, so the client applies it to its controller and it replicates out.
 const KnockbackCommand = command('wizards.knockback', SERVER_TO_CLIENT, pack.object({ impulse: pack.list(pack.float32(), 3) }));
@@ -792,7 +819,9 @@ const gemShardSprite = (id: string, hex: string) =>
         ),
         mipmap: false,
     });
-const GemShatterFx = GEM_TIERS.map((t, i) => particlePresets.spark(`wizards:gem-shatter-${i}`, { sprite: gemShardSprite(`wizards:gem-shard-${i}`, t.color) }));
+const GemShatterFx = GEM_TIERS.map((t, i) =>
+    particlePresets.spark(`wizards:gem-shatter-${i}`, { sprite: gemShardSprite(`wizards:gem-shard-${i}`, t.color) }),
+);
 
 // small deterministic 32-bit hash (two ints in) — drives the trail variant
 // pick + scatter + per-particle seed so trails are reproducible, no Math.random.
@@ -835,7 +864,14 @@ let projectileSeq = 0;
 
 // the ProjectileCast wire payload for a bolt — built from the live shot or a trait,
 // shared by the initial broadcast and the per-joiner re-send so they can't drift.
-function projectileCastPayload(p: { id: number; ownerId: number; origin: Vec3; aim: Quat; stats: ProjectileStats; spawnTime: number }) {
+function projectileCastPayload(p: {
+    id: number;
+    ownerId: number;
+    origin: Vec3;
+    aim: Quat;
+    stats: ProjectileStats;
+    spawnTime: number;
+}) {
     return {
         id: p.id,
         ownerId: p.ownerId,
@@ -851,7 +887,15 @@ function projectileCastPayload(p: { id: number; ownerId: number; origin: Vec3; a
 // replicated) and is simulated there for authoritative hit detection. its entire
 // presence on clients is the `ProjectileCast`, broadcast to every client (including
 // the owner); each derives the flight + builds its visual.
-function spawnProjectile(ctx: ScriptContext, sceneRoot: Node, ownerNode: Node, origin: Vec3, aim: Quat, spawnTime: number, stats: ProjectileStats): void {
+function spawnProjectile(
+    ctx: ScriptContext,
+    sceneRoot: Node,
+    ownerNode: Node,
+    origin: Vec3,
+    aim: Quat,
+    spawnTime: number,
+    stats: ProjectileStats,
+): void {
     const id = ++projectileSeq;
     const node = createNode({ name: 'projectile', realm: 'server' });
     const transform = addTrait(node, TransformTrait);
@@ -869,7 +913,6 @@ function spawnProjectile(ctx: ScriptContext, sceneRoot: Node, ownerNode: Node, o
 
     broadcast(ctx, ProjectileCast, projectileCastPayload({ id, ownerId: ownerNode.id, origin, aim, stats, spawnTime }));
 }
-
 
 // ── spawn placement ──────────────────────────────────────────────────
 // players + npcs spawn spread out (not piled on one point) so they don't
@@ -1414,12 +1457,29 @@ script(WorldTrait, 'combat-projectiles', (ctx) => {
         rayFilter ??= crashFilter.forWorld(rigid.world); // all layers: terrain + bodies
 
         // resolve outside the loop — destroying nodes mid-iteration is unsafe.
-        const spent: Array<{ node: Node; id: number; pos: Vec3; ownerId: number; stats: ProjectileStats; fizzle: boolean; block: number; cell?: Vec3 }> = [];
+        const spent: Array<{
+            node: Node;
+            id: number;
+            pos: Vec3;
+            ownerId: number;
+            stats: ProjectileStats;
+            fizzle: boolean;
+            block: number;
+            cell?: Vec3;
+        }> = [];
 
         for (const [projectile, transform] of projectiles) {
             const pos = transform.position;
             if (now - projectile.spawnTime > PROJECTILE_LIFETIME) {
-                spent.push({ node: projectile._node, id: projectile.id, pos: [pos[0], pos[1], pos[2]], ownerId: projectile.ownerId, stats: projectile.stats, fizzle: true, block: 0 });
+                spent.push({
+                    node: projectile._node,
+                    id: projectile.id,
+                    pos: [pos[0], pos[1], pos[2]],
+                    ownerId: projectile.ownerId,
+                    stats: projectile.stats,
+                    fizzle: true,
+                    block: 0,
+                });
                 continue;
             }
 
@@ -1428,9 +1488,28 @@ script(WorldTrait, 'combat-projectiles', (ctx) => {
             const step = projectile.stats.speed * delta;
 
             // the SAME query the client predicts with — terrain + characters + gems.
-            const hit = castProjectileSegment(ctx, pos, dir, step, projectile.ownerId, gems, rayCollector, raySettings, rayFilter);
+            const hit = castProjectileSegment(
+                ctx,
+                pos,
+                dir,
+                step,
+                projectile.ownerId,
+                gems,
+                rayCollector,
+                raySettings,
+                rayFilter,
+            );
             if (hit) {
-                spent.push({ node: projectile._node, id: projectile.id, pos: hit.point, ownerId: projectile.ownerId, stats: projectile.stats, fizzle: false, block: hit.block, cell: hit.cell });
+                spent.push({
+                    node: projectile._node,
+                    id: projectile.id,
+                    pos: hit.point,
+                    ownerId: projectile.ownerId,
+                    stats: projectile.stats,
+                    fizzle: false,
+                    block: hit.block,
+                    cell: hit.cell,
+                });
                 continue;
             }
 
@@ -1439,7 +1518,8 @@ script(WorldTrait, 'combat-projectiles', (ctx) => {
         }
 
         for (const s of spent) {
-            if (s.fizzle) broadcast(ctx, ImpactCommand, { id: s.id, pos: s.pos, fizzle: true, block: 0, radius: s.stats.damageRadius });
+            if (s.fizzle)
+                broadcast(ctx, ImpactCommand, { id: s.id, pos: s.pos, fizzle: true, block: 0, radius: s.stats.damageRadius });
             else handleHit(s.id, s.pos, s.ownerId, s.stats, s.block, s.cell!);
             destroyNode(s.node);
         }
@@ -1682,7 +1762,8 @@ script(WorldTrait, 'xp', (ctx) => {
             if (selfWiz) {
                 // luanti-style: randomise pitch down a little each pickup so rapid
                 // blips vary instead of machine-gunning the same sample.
-                if (lastXp >= 0 && selfWiz.xp > lastXp) playMono(ctx, PickupSound, { volume: 0.75, detune: -Math.random() * 250 });
+                if (lastXp >= 0 && selfWiz.xp > lastXp)
+                    playMono(ctx, PickupSound, { volume: 0.75, detune: -Math.random() * 250 });
                 lastXp = selfWiz.xp;
                 // grunt on taking damage — only on a health drop (regen rises,
                 // respawn jumps up, both stay silent). seeded -1 so join/initial
@@ -1707,7 +1788,13 @@ script(WorldTrait, 'xp', (ctx) => {
                 if (!visual) {
                     visual = createNode({ name: 'orb-visual' });
                     addTrait(visual, TransformTrait);
-                    addTrait(visual, SpriteTrait, { sprite: XpOrbSprite, mode: 'billboard', width: 7, height: 7, worldScale: 1 / 20 });
+                    addTrait(visual, SpriteTrait, {
+                        sprite: XpOrbSprite,
+                        mode: 'billboard',
+                        width: 7,
+                        height: 7,
+                        worldScale: 1 / 20,
+                    });
                     addChild(orbNode, visual);
                 }
 
@@ -1810,7 +1897,8 @@ script(WorldTrait, 'gems', (ctx) => {
         const paintGemBar = (el: HTMLElement, hp: number, max: number) => {
             const pct = max > 0 ? Math.max(0, Math.min(1, hp / max)) : 0;
             const track = document.createElement('div');
-            track.style.cssText = 'width:60px; height:9px; background:#222; border:1px solid #000; box-sizing:border-box; overflow:hidden;';
+            track.style.cssText =
+                'width:60px; height:9px; background:#222; border:1px solid #000; box-sizing:border-box; overflow:hidden;';
             const fill = document.createElement('div');
             fill.style.cssText = `height:100%; width:${pct * 100}%; background:${pct > 0.5 ? '#22c55e' : pct > 0.25 ? '#eab308' : '#dc2626'};`;
             track.appendChild(fill);
@@ -1913,7 +2001,7 @@ script(WorldTrait, 'gems', (ctx) => {
 // lives here — repath to the nearest combatant on a timer and walk the
 // waypoints (look + move + jump), or circle-strafe + fire when in range.
 
-script(WorldTrait, 'combat-npcs', (ctx) => {
+script(WorldTrait, 'npcs', (ctx) => {
     if (!env.server) return;
 
     const NPC_COLORS: Vec4[] = [
@@ -1928,9 +2016,9 @@ script(WorldTrait, 'combat-npcs', (ctx) => {
     const NPC_REPATHS_PER_TICK = 4; // round-robin cap: at most this many A* runs per tick (spreads + de-bunches repaths).
     //                                 must exceed NPC_COUNT or an idle npc can be starved of a repath on the tick it
     //                                 picks a wander, fail to get a path, and falsely "arrive" → reroll → stand.
-    const NPC_PATH_MAX_ITERATIONS = 200; // A* node-expansion cap. raised from 100: on hilly terrain a wander target the
-    //                                      flood-fill proved reachable can still be a long step-up/down path, and a too-low
-    //                                      cap makes A* give up → empty path → false "arrive" → stand. cheap; bounds spikes.
+    const NPC_PATH_MAX_ITERATIONS = 400; // A* node-expansion cap — kept ≥ WANDER_FLOOD_MAX so a wander target the flood-fill
+    //                                      proved reachable can't then fail A* (a long step-up/down path needs more node
+    //                                      expansions than cells); a failed path yields an empty path → false "arrive". cheap.
     const WAYPOINT_REACHED = 0.7; // m (horizontal) to advance to the next waypoint
     const CAST_RANGE = 16; // m — within this (with a clear shot) the NPC strafes + fires
     // burst-fire as a held window: the AI just opens `casting` for a beat (the
@@ -1953,6 +2041,14 @@ script(WorldTrait, 'combat-npcs', (ctx) => {
     const WANDER_TIMEOUT = 7; // s — re-roll if a wander hasn't arrived by now (anti-stuck)
     const GEM_NOTICE_RADIUS = 12; // m — only seek a gem this close when idle (opportunistic)
     const SEEKGEM_TIMEOUT = 6; // s — give up chasing a gem after this
+    const WANDER_MIN_DIST = 6; // m — don't pick a wander target this close to ourselves (avoids instant "arrive")
+    // dead-end / stuck guard: a behaviour trying to travel that makes no real ground
+    // progress over the window has an unreachable goal — it bails (blacklist + re-route)
+    // instead of standing. blacklisted targets/gems are skipped for a beat, then retried.
+    const STUCK_WINDOW = 0.6; // s — progress is judged over this sliding window
+    const STUCK_MIN_PROGRESS = 0.35; // m — less than this travelled in a window ⇒ stuck
+    const STUCK_BLACKLIST = 4; // s — ignore a target/gem we failed to reach this long
+    const DEBUG_NPC = false; // flip on to log stuck-bails to the server console
     const HALF_PI = Math.PI / 2; // level gaze for look[2] (0 = straight down, π = straight up)
     const GAZE_DOWN = 0.45; // look[2] while "looking around" — eyes toward the ground
     const GAZE_UP = Math.PI * 0.95; // look[2] while shooting skyward — near-straight up
@@ -2034,28 +2130,85 @@ script(WorldTrait, 'combat-npcs', (ctx) => {
         }
     };
 
-    type Brain = { path: Vec3[]; waypoint: number; repathIn: number; fireWindowIn: number; firing: boolean; strafeDir: number; strafeIn: number; jumpIn: number; leveled: boolean; idleAction: IdleAction; idleUntil: number; wanderTarget: Vec3 | null; idleSpinDir: number };
+    // ── steering: intents + the single actuator ──────────────────────────
+    // a behaviour never touches controller.input directly. it returns an Intent — the
+    // complete set of inputs it wants this tick — and one actuator writes it. `travel`
+    // marks an intent that's trying to make ground progress, so the stuck guard can
+    // tell a dead-end ("not moving") from a deliberate stand.
+    type Intent = { move: [number, number]; yaw: number; pitch: number; jump: boolean; fire: boolean; travel: boolean };
+
+    // exactly one intent is produced per npc per tick and consumed immediately by
+    // applyIntent, so a single reused instance avoids per-tick garbage. every
+    // intent-returning path writes through setIntent into this shared object.
+    const _intent: Intent = { move: [0, 0], yaw: 0, pitch: 0, jump: false, fire: false, travel: false };
+    const setIntent = (moveX: number, moveY: number, yaw: number, pitch: number, jump: boolean, fire: boolean, travel: boolean): Intent => {
+        _intent.move[0] = moveX;
+        _intent.move[1] = moveY;
+        _intent.yaw = yaw;
+        _intent.pitch = pitch;
+        _intent.jump = jump;
+        _intent.fire = fire;
+        _intent.travel = travel;
+        return _intent;
+    };
+
+    // a deliberate stand — the ONLY way an npc holds still. no movement, optional fire,
+    // never `travel`. emotes + aimed potshots are built from this, so standing can never
+    // happen by accident (a fallthrough): it is always some behaviour's explicit choice.
+    const stand = (yaw: number, pitch: number, fire = false): Intent => setIntent(0, 0, yaw, pitch, false, fire, false);
+
+    const applyIntent = (controller: CharacterControllerTrait, wiz: WizardTrait | undefined, intent: Intent): void => {
+        controller.input.move[0] = intent.move[0];
+        controller.input.move[1] = intent.move[1];
+        controller.input.look[1] = intent.yaw;
+        controller.input.look[2] = intent.pitch;
+        controller.input.jump = intent.jump;
+        if (wiz) wiz.casting = intent.fire; // the server firing tick fires while held
+    };
+
+    type Brain = {
+        // shared A* path state — chase / wander / gem-seek all walk one path.
+        path: Vec3[];
+        waypoint: number;
+        repathIn: number;
+        // combat scratch
+        fireWindowIn: number;
+        firing: boolean;
+        strafeDir: number;
+        strafeIn: number;
+        jumpIn: number;
+        leveled: boolean;
+        // idle arbiter: the committed activity, its deadline, and per-activity scratch.
+        idleAction: IdleAction;
+        idleUntil: number;
+        wanderTarget: Vec3 | null;
+        idleSpinDir: number;
+        // arbitration: the behaviour that ran last tick (so a switch can reset the
+        // shared path) + the stuck guard's sliding progress window.
+        active: string;
+        lastPos: Vec3;
+        stuckTimer: number;
+        progress: number;
+        // dead-end cooldowns: combatants we failed to path to, and a gem we gave up on.
+        blockedTargets: Map<number, number>; // node id → time the block expires
+        gemBlockUntil: number;
+    };
     const brains = new Map<number, Brain>();
 
     const worldToCell = (p: Vec3): Vec3 => [Math.floor(p[0]), Math.floor(p[1]), Math.floor(p[2])];
 
-    // stop walking.
-    const idle = (controller: CharacterControllerTrait) => {
-        controller.input.move[0] = 0;
-        controller.input.move[1] = 0;
-        controller.input.jump = false;
-    };
-
-    // aim the controller's look (yaw + pitch) from `eye` at a world `target` — the
-    // same `look` the player's camera drives, read by the server firing tick via
-    // lookDirection. shared by the combat aim + the idle gem potshot.
-    const aimAt = (controller: CharacterControllerTrait, eye: Vec3, target: Vec3) => {
+    // yaw + pitch aiming from `eye` at a world `target` — the same `look` the player's
+    // camera drives, read by the server firing tick via lookDirection. writes a reused
+    // pair (caller destructures it immediately) to avoid a per-aim allocation.
+    const _aim: [number, number] = [0, 0];
+    const aimYawPitch = (eye: Vec3, target: Vec3): [number, number] => {
         const dx = target[0] - eye[0];
         const dy = target[1] - eye[1];
         const dz = target[2] - eye[2];
-        controller.input.look[1] = Math.atan2(-dx, -dz); // yaw
         const dist = Math.hypot(dx, dy, dz) || 1;
-        controller.input.look[2] = Math.acos(Math.max(-1, Math.min(1, -dy / dist))); // pitch
+        _aim[0] = Math.atan2(-dx, -dz);
+        _aim[1] = Math.acos(Math.max(-1, Math.min(1, -dy / dist)));
+        return _aim;
     };
 
     // cheap sampled line-of-sight: any non-air cell between the two points
@@ -2067,7 +2220,10 @@ script(WorldTrait, 'combat-npcs', (ctx) => {
         const steps = Math.ceil(Math.hypot(dx, dy, dz));
         for (let i = 1; i < steps; i++) {
             const t = i / steps;
-            if (getBlock(ctx.voxels, Math.floor(from[0] + dx * t), Math.floor(from[1] + dy * t), Math.floor(from[2] + dz * t)) !== BLOCK_AIR) {
+            if (
+                getBlock(ctx.voxels, Math.floor(from[0] + dx * t), Math.floor(from[1] + dy * t), Math.floor(from[2] + dz * t)) !==
+                BLOCK_AIR
+            ) {
                 return false;
             }
         }
@@ -2075,12 +2231,18 @@ script(WorldTrait, 'combat-npcs', (ctx) => {
     };
 
     // walk along brain.path toward `goalCell`, optionally recomputing it this tick.
-    // writes the controller's yaw/move/jump and returns 'arrived' once the path is
-    // exhausted (caller decides what's next), else 'traveling'. shared by chase +
-    // wander + gem-seek so they all use one A* + step-up walker.
-    const followPath = (brain: Brain, controller: CharacterControllerTrait, pos: Vec3, goalCell: Vec3, doRepath: boolean): 'arrived' | 'traveling' => {
+    // returns 'arrived' once the path is exhausted (caller decides what's next), else a
+    // travel intent for the next waypoint. shared by chase + wander + gem-seek so they
+    // all use one A* + step-up walker.
+    const _start: Vec3 = [0, 0, 0]; // reused A* start cell — findPath copies values out
+    const walkPath = (brain: Brain, pos: Vec3, goalCell: Vec3, doRepath: boolean): Intent | 'arrived' => {
         if (doRepath) {
-            const rawPath = nav.findPath(ctx.voxels, worldToCell(pos), goalCell, nav.groundActions, { maxIterations: NPC_PATH_MAX_ITERATIONS });
+            _start[0] = Math.floor(pos[0]);
+            _start[1] = Math.floor(pos[1]);
+            _start[2] = Math.floor(pos[2]);
+            const rawPath = nav.findPath(ctx.voxels, _start, goalCell, nav.groundActions, {
+                maxIterations: NPC_PATH_MAX_ITERATIONS,
+            });
             brain.path = rawPath ? nav.smoothPath(ctx.voxels, rawPath, nav.groundShortcut()) : [];
             brain.waypoint = 1; // skip our own starting cell
         }
@@ -2093,17 +2255,16 @@ script(WorldTrait, 'combat-npcs', (ctx) => {
         }
         if (brain.waypoint >= brain.path.length) return 'arrived';
         const cell = brain.path[brain.waypoint]!;
-        controller.input.look[1] = Math.atan2(-(cell[0] + 0.5 - pos[0]), -(cell[2] + 0.5 - pos[2]));
-        controller.input.look[2] = HALF_PI; // level gaze while walking
-        controller.input.move[0] = 0;
-        controller.input.move[1] = 1;
-        controller.input.jump = cell[1] > Math.floor(pos[1]); // hop up steps
-        return 'traveling';
+        // move forward toward the waypoint, level gaze, hop up steps.
+        return setIntent(0, 1, Math.atan2(-(cell[0] + 0.5 - pos[0]), -(cell[2] + 0.5 - pos[2])), HALF_PI, cell[1] > Math.floor(pos[1]), false, true);
     };
 
-    // nearest live gem within `maxDist` of `pos` (world position), or null.
+    // nearest live gem within `maxDist` of `pos` (world position), or null. writes a
+    // reused cell (callers read it before the next call, or only null-check it) so the
+    // per-tick feasibility probes don't allocate.
+    const _gem: Vec3 = [0, 0, 0];
     const nearestGemWithin = (pos: Vec3, maxDist: number): Vec3 | null => {
-        let best: Vec3 | null = null;
+        let found = false;
         let bestSq = maxDist * maxDist;
         for (const [gem, transform] of idleGems) {
             if (gem.current <= 0) continue;
@@ -2114,16 +2275,20 @@ script(WorldTrait, 'combat-npcs', (ctx) => {
             const distSq = dx * dx + dy * dy + dz * dz;
             if (distSq < bestSq) {
                 bestSq = distSq;
-                best = [gp[0], gp[1], gp[2]];
+                _gem[0] = gp[0];
+                _gem[1] = gp[1];
+                _gem[2] = gp[2];
+                found = true;
             }
         }
-        return best;
+        return found ? _gem : null;
     };
 
     // wander destination: a random cell reachable on foot from `pos`, kept within
-    // WANDER_RADIUS of the arena centre (the leash). drawn from the flood-fill, so
-    // pathing to it can't fail. if the npc is boxed outside the leash, it heads to
-    // the reachable cell nearest the centre, so it drifts back. null only when
+    // WANDER_RADIUS of the arena centre (the leash) and at least WANDER_MIN_DIST away
+    // (so we don't pick our own cell → instant "arrive" → churn). drawn from the
+    // flood-fill, so pathing to it can't fail. if the npc is boxed outside the leash, it
+    // heads to the reachable cell nearest the centre so it drifts back. null only when
     // genuinely boxed in (no walkable neighbours at all).
     const pickWanderTarget = (pos: Vec3): Vec3 | null => {
         const reachable = nav.floodFill(ctx.voxels, worldToCell(pos), nav.groundActions, WANDER_FLOOD_MAX);
@@ -2134,15 +2299,34 @@ script(WorldTrait, 'combat-npcs', (ctx) => {
             return dx * dx + dz * dz;
         };
         const inLeash = reachable.filter((c) => distSqToCenter(c) <= WANDER_RADIUS * WANDER_RADIUS);
-        if (inLeash.length > 0) return inLeash[Math.floor(Math.random() * inLeash.length)]!;
+        if (inLeash.length > 0) {
+            const far = inLeash.filter((c) => {
+                const dx = c[0] + 0.5 - pos[0];
+                const dz = c[2] + 0.5 - pos[2];
+                return dx * dx + dz * dz >= WANDER_MIN_DIST * WANDER_MIN_DIST;
+            });
+            const pool = far.length > 0 ? far : inLeash;
+            return pool[Math.floor(Math.random() * pool.length)]!;
+        }
         // outside the leash → walk back toward the centre.
         return reachable.reduce((best, c) => (distSqToCenter(c) < distSqToCenter(best) ? c : best), reachable[0]!);
     };
 
-    // roll the next idle activity (weighted) and stamp its deadline + scratch onto
-    // the brain. SeekGem only competes when a gem is within notice range.
-    const pickIdleAction = (brain: Brain, pos: Vec3, now: number): void => {
-        const gemNear = nearestGemWithin(pos, GEM_NOTICE_RADIUS) !== null;
+    // is `id` currently on the dead-end cooldown? (prunes expired entries on the way.)
+    const targetBlocked = (brain: Brain, id: number, now: number): boolean => {
+        const until = brain.blockedTargets.get(id);
+        if (until === undefined) return false;
+        if (until <= now) {
+            brain.blockedTargets.delete(id);
+            return false;
+        }
+        return true;
+    };
+
+    // roll the next idle activity (weighted) and stamp its deadline + scratch onto the
+    // brain. SeekGem only competes when a gem is within notice range and off cooldown.
+    const rollIdle = (brain: Brain, pos: Vec3, now: number): void => {
+        const gemNear = now >= brain.gemBlockUntil && nearestGemWithin(pos, GEM_NOTICE_RADIUS) !== null;
         let total = gemNear ? IDLE_SEEKGEM_WEIGHT : 0;
         for (const [, w] of IDLE_BASE_WEIGHTS) total += w;
 
@@ -2166,6 +2350,10 @@ script(WorldTrait, 'combat-npcs', (ctx) => {
             case IdleAction.Wander:
                 brain.wanderTarget = pickWanderTarget(pos);
                 brain.idleUntil = now + WANDER_TIMEOUT;
+                // drop the previous activity's path so we head to the NEW target at once
+                // (a wander→wander re-roll keeps the behaviour name, so the arbiter's
+                // switch-reset doesn't fire — without this it'd "arrive" on the stale
+                // exhausted path and stand until the repath timer next elapses).
                 brain.path = [];
                 brain.waypoint = 0;
                 brain.repathIn = 0;
@@ -2192,6 +2380,180 @@ script(WorldTrait, 'combat-npcs', (ctx) => {
         }
     };
 
+    // ── behaviours ───────────────────────────────────────────────────────
+    // the per-tick blackboard handed to every behaviour: this npc's perceived world,
+    // plus the path stepper (which closes over the tick's shared repath budget).
+    type BCtx = {
+        brain: Brain;
+        pos: Vec3;
+        eye: Vec3;
+        yaw: number; // current look yaw (emotes sweep from here)
+        now: number;
+        delta: number;
+        target: Vec3 | null; // nearest alive combatant within chase range, or null
+        targetId: number;
+        step: (brain: Brain, pos: Vec3, goalCell: Vec3) => Intent | 'arrived';
+    };
+
+    // a behaviour = a feasibility guard + an act() that returns this tick's intent.
+    // onStuck() lets the stuck guard tell a behaviour its goal is unreachable, so it can
+    // abandon it (blacklist + re-route) rather than stand there shoving into geometry.
+    type Behavior = { name: string; feasible: (c: BCtx) => boolean; act: (c: BCtx) => Intent; onStuck?: (c: BCtx) => void };
+
+    // a target we can hit right now: in cast range with a clear shot. ignores the path
+    // blacklist (hitting needs no path). strafe + burst-fire; don't close to melee.
+    const Engage: Behavior = {
+        name: 'engage',
+        feasible: (c) => {
+            if (!c.target) return false;
+            const ax = c.target[0] - c.eye[0];
+            const ay = c.target[1] + CHEST_OFFSET - c.eye[1];
+            const az = c.target[2] - c.eye[2];
+            if (ax * ax + ay * ay + az * az >= CAST_RANGE * CAST_RANGE) return false;
+            return clearShot(c.eye, [c.target[0], c.target[1] + CHEST_OFFSET, c.target[2]]);
+        },
+        act: (c) => {
+            const b = c.brain;
+            b.idleUntil = 0; // so leaving combat later re-rolls a fresh idle activity
+            const target = c.target!;
+            const [yaw, pitch] = aimYawPitch(c.eye, [target[0], target[1] + CHEST_OFFSET, target[2]]);
+            // circle-strafe, reversing on a jittered timer so they weave both ways.
+            b.strafeIn -= c.delta;
+            if (b.strafeIn <= 0) {
+                b.strafeDir = -b.strafeDir;
+                b.strafeIn = STRAFE_FLIP_MIN + Math.random() * (STRAFE_FLIP_MAX - STRAFE_FLIP_MIN);
+            }
+            // hop intermittently (one-tick press → single jump).
+            b.jumpIn -= c.delta;
+            const jump = b.jumpIn <= 0;
+            if (jump) b.jumpIn = JUMP_INTERVAL_MIN + Math.random() * (JUMP_INTERVAL_MAX - JUMP_INTERVAL_MIN);
+            // hold a burst window open/closed; the server fires at fireRate while held.
+            b.fireWindowIn -= c.delta;
+            if (b.fireWindowIn <= 0) {
+                b.firing = !b.firing;
+                b.fireWindowIn = b.firing ? NPC_BURST_DURATION : NPC_BURST_PAUSE;
+            }
+            return { move: [b.strafeDir, 0], yaw, pitch, jump, fire: b.firing, travel: false };
+        },
+    };
+
+    // a target in range we haven't given up on: close the distance / circle for a shot.
+    // (Engage outranks this once we actually have a clear shot.)
+    const Chase: Behavior = {
+        name: 'chase',
+        feasible: (c) => c.target !== null && !targetBlocked(c.brain, c.targetId, c.now),
+        act: (c) => {
+            const b = c.brain;
+            b.idleUntil = 0;
+            const step = c.step(b, c.pos, worldToCell(c.target!));
+            if (step === 'arrived') {
+                // path ran out and we still can't hit it → effectively unreachable.
+                // blacklist it for a beat and fall back to idle (instead of standing).
+                b.blockedTargets.set(c.targetId, c.now + STUCK_BLACKLIST);
+                return stand(c.yaw, HALF_PI);
+            }
+            return step;
+        },
+        onStuck: (c) => c.brain.blockedTargets.set(c.targetId, c.now + STUCK_BLACKLIST),
+    };
+
+    // the terminal fallback: always feasible, always moving. an npc is never left with
+    // nothing to do, because this is always available.
+    const Wander: Behavior = {
+        name: 'wander',
+        feasible: () => true,
+        act: (c) => {
+            const b = c.brain;
+            if (!b.wanderTarget) {
+                b.idleUntil = 0; // nowhere to go → roll the next activity next tick
+                return stand(c.yaw, HALF_PI);
+            }
+            const step = c.step(b, c.pos, worldToCell(b.wanderTarget));
+            if (step === 'arrived') {
+                b.idleUntil = 0; // reached it → roll the next activity
+                return stand(c.yaw, HALF_PI);
+            }
+            return step;
+        },
+        onStuck: (c) => {
+            c.brain.wanderTarget = null;
+            c.brain.idleUntil = 0;
+        },
+    };
+
+    // opportunistic potshot at a nearby gem: walk to it, then stop + aim + fire.
+    const SeekGem: Behavior = {
+        name: 'seek-gem',
+        feasible: (c) => c.now >= c.brain.gemBlockUntil && nearestGemWithin(c.pos, GEM_NOTICE_RADIUS) !== null,
+        act: (c) => {
+            const b = c.brain;
+            const gem = nearestGemWithin(c.pos, GEM_NOTICE_RADIUS * 1.5); // hysteresis past notice
+            if (!gem) {
+                b.idleUntil = 0;
+                return stand(c.yaw, HALF_PI);
+            }
+            const dx = gem[0] - c.eye[0];
+            const dy = gem[1] - c.eye[1];
+            const dz = gem[2] - c.eye[2];
+            if (dx * dx + dy * dy + dz * dz < CAST_RANGE * CAST_RANGE && clearShot(c.eye, gem)) {
+                const [yaw, pitch] = aimYawPitch(c.eye, gem); // in range + clear → stop, aim, fire
+                return stand(yaw, pitch, true);
+            }
+            const step = c.step(b, c.pos, worldToCell(gem));
+            if (step === 'arrived') {
+                b.idleUntil = 0;
+                return stand(c.yaw, HALF_PI);
+            }
+            return step;
+        },
+        onStuck: (c) => {
+            c.brain.gemBlockUntil = c.now + STUCK_BLACKLIST;
+            c.brain.idleUntil = 0;
+        },
+    };
+
+    // emotes — deliberate, timed stands for personality. these are the ONLY behaviours
+    // that hold still on purpose; they're committed by their idle deadline, so an npc
+    // can never silently stand for more than the short window the roll granted.
+    const LookAround: Behavior = {
+        name: 'look-around',
+        feasible: () => true,
+        act: (c) => stand(c.yaw + IDLE_LOOK_SPEED * c.delta, GAZE_DOWN),
+    };
+    const Spin: Behavior = {
+        name: 'spin',
+        feasible: () => true,
+        act: (c) => stand(c.yaw + c.brain.idleSpinDir * IDLE_SPIN_SPEED * c.delta, HALF_PI),
+    };
+    const ShootUp: Behavior = { name: 'shoot-up', feasible: () => true, act: (c) => stand(c.yaw, GAZE_UP, true) };
+    const Loiter: Behavior = { name: 'loiter', feasible: () => true, act: (c) => stand(c.yaw, HALF_PI) };
+
+    // idle activities indexed by the enum rollIdle writes.
+    const IDLE_BEHAVIORS: Record<IdleAction, Behavior> = {
+        [IdleAction.Wander]: Wander,
+        [IdleAction.SeekGem]: SeekGem,
+        [IdleAction.LookAround]: LookAround,
+        [IdleAction.Spin]: Spin,
+        [IdleAction.ShootUp]: ShootUp,
+        [IdleAction.Loiter]: Loiter,
+    };
+
+    // combat behaviours, highest priority first — checked every tick so combat always
+    // interrupts idle the instant it's feasible.
+    const COMBAT_BEHAVIORS: Behavior[] = [Engage, Chase];
+
+    // pick this tick's behaviour: the first feasible combat behaviour, else the
+    // committed idle activity (re-rolled when its deadline passes or it goes infeasible).
+    // Wander is the unconditional terminal, so there is ALWAYS a feasible behaviour — an
+    // idle "do nothing" can only ever be a timed emote, never a gap.
+    const pickBehavior = (c: BCtx): Behavior => {
+        for (const b of COMBAT_BEHAVIORS) if (b.feasible(c)) return b;
+        const committed = IDLE_BEHAVIORS[c.brain.idleAction];
+        if (c.now < c.brain.idleUntil && committed.feasible(c)) return committed;
+        rollIdle(c.brain, c.pos, c.now);
+        return IDLE_BEHAVIORS[c.brain.idleAction];
+    };
+
     onInit(ctx, () => {
         // spawn each dummy spread out from the ones already placed (and from the
         // arena centre where players first appear), so they don't cluster.
@@ -2214,10 +2576,10 @@ script(WorldTrait, 'combat-npcs', (ctx) => {
             addTrait(node, WizardTrait, { color: NPC_COLORS[i % NPC_COLORS.length], name: randomDisplayName() });
             attachGear(node); // staff + hat onto the rig
 
-            // combat state: killable dummy that respawns at home. WizardTrait
-            // carries the health pool; AliveTrait marks it killable.
+            // combat state: a killable dummy (respawn runs through the shared wizard
+            // logic). WizardTrait carries the health pool; AliveTrait marks it killable.
             addTrait(node, AliveTrait);
-            addTrait(node, NpcTrait, { homeX: home[0], homeY: home[1], homeZ: home[2], archetype: i % NPC_ARCHETYPES.length });
+            addTrait(node, NpcTrait, { archetype: i % NPC_ARCHETYPES.length });
             npcNodes.push(node);
         }
 
@@ -2234,37 +2596,39 @@ script(WorldTrait, 'combat-npcs', (ctx) => {
                     assignAvatar(node, modelId, rigType);
                 });
                 // drop the refs when the world script disposes (room teardown / re-sample).
-                onDispose(ctx, () => loaded.forEach((l) => releaseAvatar(ctx, l.modelId)));
+                onDispose(ctx, () => {
+                    for (const loadedAvatar of loaded) releaseAvatar(ctx, loadedAvatar.modelId);
+                });
             })
             .catch(() => {}); // host error → keep the base avatar
     });
 
+    // reused per-tick scratch — each npc is fully processed before the next, so sharing
+    // these within a tick is safe; nothing persists them past the tick.
+    const _eye: Vec3 = [0, 0, 0];
+    const _target: Vec3 = [0, 0, 0];
+
     onTick(ctx, ({ delta }) => {
         const now = ctx.clock.time;
-        // round-robin A* across ticks: a per-tick budget so many NPCs coming due on
-        // the same tick don't all pathfind at once (the source of the tick spikes).
+        // round-robin A* across ticks: a per-tick budget so many NPCs coming due on the
+        // same tick don't all pathfind at once (the source of the tick spikes).
         let repathBudget = NPC_REPATHS_PER_TICK;
 
-        // walk a brain toward `goal`, repathing on its timer while the shared budget
-        // holds. closes over this tick's `delta` + `repathBudget`. returns followPath's
-        // 'arrived' | 'traveling'. used by chase, wander, and gem-seek alike.
-        const stepToward = (brain: Brain, controller: CharacterControllerTrait, pos: Vec3, goal: Vec3) => {
+        // the path stepper every behaviour shares: repath on the brain's timer while the
+        // budget holds, else walk the existing path. closes over this tick's delta +
+        // budget. returns 'arrived' | a travel intent.
+        const stepToward = (brain: Brain, pos: Vec3, goalCell: Vec3): Intent | 'arrived' => {
             brain.repathIn -= delta;
             const doRepath = brain.repathIn <= 0 && repathBudget > 0;
             if (doRepath) {
                 repathBudget--;
                 brain.repathIn = REPATH_INTERVAL;
             }
-            return followPath(brain, controller, pos, goal, doRepath);
+            return walkPath(brain, pos, goalCell, doRepath);
         };
 
         for (const [npc, controller, transform] of npcs) {
-            // the server owns npcs, so it authors their held `casting` intent (the
-            // same input the player's client authors for itself). default it closed
-            // each tick → any non-engaged exit (dead, no target, out of range) holds
-            // fire; the engaged branch below re-opens it for the burst window.
             const wiz = getTrait(npc._node, WizardTrait);
-            if (wiz) wiz.casting = false;
 
             let brain = brains.get(npc._node.id);
             if (!brain) {
@@ -2282,31 +2646,44 @@ script(WorldTrait, 'combat-npcs', (ctx) => {
                     idleUntil: 0, // 0 → roll an idle activity on the first idle tick
                     wanderTarget: null,
                     idleSpinDir: 1,
+                    active: '',
+                    lastPos: [0, 0, 0],
+                    stuckTimer: 0,
+                    progress: 0,
+                    blockedTargets: new Map(),
+                    gemBlockUntil: 0,
                 };
                 brains.set(npc._node.id, brain);
             }
 
+            const pos = getWorldPosition(transform);
+
             // dead NPCs (no AliveTrait) just stand until they respawn; re-arm the
-            // once-per-life leveling for their next spawn.
+            // once-per-life leveling + reset the stuck window for their next spawn.
             if (!getTrait(npc._node, AliveTrait)) {
                 brain.leveled = false;
-                idle(controller);
+                brain.stuckTimer = 0;
+                brain.progress = 0;
+                brain.lastPos[0] = pos[0];
+                brain.lastPos[1] = pos[1];
+                brain.lastPos[2] = pos[2];
+                applyIntent(controller, wiz, stand(controller.input.look[1], HALF_PI));
                 continue;
             }
 
-            // on (re)spawn: set the baseline level near the players. then every tick
-            // spend any available points — from that baseline OR from xp orbs picked
-            // up while fighting — down the archetype build.
+            // on (re)spawn: set the baseline level near the players, then every tick
+            // spend any available points — from the baseline OR from xp orbs picked up
+            // while fighting — down the archetype build.
             if (wiz && !brain.leveled) {
                 setNpcFloor(wiz);
                 brain.leveled = true;
             }
             if (wiz) spendNpcPoints(wiz, NPC_ARCHETYPES[npc.archetype]!);
 
-            const pos = getWorldPosition(transform);
-
-            // nearest alive combatant (other than self) within chase range.
-            let target: Vec3 | null = null;
+            // perceive: nearest alive combatant (other than self) within chase range.
+            // copies the winner into the shared _target scratch (no per-npc allocation).
+            let hasTarget = false;
+            let targetId = -1;
             let bestDistSq = CHASE_RANGE * CHASE_RANGE;
             for (const [, , otherTransform] of combatants) {
                 if (otherTransform._node.id === npc._node.id) continue; // not myself
@@ -2317,120 +2694,64 @@ script(WorldTrait, 'combat-npcs', (ctx) => {
                 const distSq = dx * dx + dy * dy + dz * dz;
                 if (distSq < bestDistSq) {
                     bestDistSq = distSq;
-                    target = [pp[0], pp[1], pp[2]];
+                    _target[0] = pp[0];
+                    _target[1] = pp[1];
+                    _target[2] = pp[2];
+                    targetId = otherTransform._node.id;
+                    hasTarget = true;
                 }
             }
 
-            if (!target) {
-                // no combatant in range → run an idle activity. (re)roll when the
-                // current one's deadline passes; `casting` was already defaulted off.
-                if (now >= brain.idleUntil) pickIdleAction(brain, pos, now);
+            _eye[0] = pos[0];
+            _eye[1] = pos[1] + EYE_HEIGHT;
+            _eye[2] = pos[2];
+            const c: BCtx = {
+                brain,
+                pos,
+                eye: _eye,
+                yaw: controller.input.look[1],
+                now,
+                delta,
+                target: hasTarget ? _target : null,
+                targetId,
+                step: stepToward,
+            };
 
-                switch (brain.idleAction) {
-                    case IdleAction.SeekGem: {
-                        const gem = nearestGemWithin(pos, GEM_NOTICE_RADIUS * 1.5); // a little hysteresis past the notice radius
-                        if (!gem) {
-                            brain.idleUntil = 0; // gem gone → roll something else next tick
-                            idle(controller);
-                            break;
-                        }
-                        const eye: Vec3 = [pos[0], pos[1] + EYE_HEIGHT, pos[2]];
-                        const dx = gem[0] - eye[0];
-                        const dy = gem[1] - eye[1];
-                        const dz = gem[2] - eye[2];
-                        if (dx * dx + dy * dy + dz * dz < CAST_RANGE * CAST_RANGE && clearShot(eye, gem)) {
-                            // in range with a clear line → stop, aim at it, and fire.
-                            idle(controller);
-                            aimAt(controller, eye, gem);
-                            if (wiz) wiz.casting = true;
-                        } else {
-                            stepToward(brain, controller, pos, worldToCell(gem)); // walk toward it
-                        }
-                        break;
-                    }
-                    case IdleAction.Wander: {
-                        if (!brain.wanderTarget) {
-                            brain.idleUntil = 0;
-                            idle(controller);
-                            break;
-                        }
-                        if (stepToward(brain, controller, pos, worldToCell(brain.wanderTarget)) === 'arrived') {
-                            brain.idleUntil = 0; // reached it → roll the next activity
-                            idle(controller);
-                        }
-                        break;
-                    }
-                    case IdleAction.LookAround: {
-                        idle(controller);
-                        controller.input.look[1] += IDLE_LOOK_SPEED * delta; // slow sweep…
-                        controller.input.look[2] = GAZE_DOWN; // …gaze toward the ground
-                        break;
-                    }
-                    case IdleAction.Spin: {
-                        idle(controller);
-                        controller.input.look[1] += brain.idleSpinDir * IDLE_SPIN_SPEED * delta; // dizzy whirl
-                        controller.input.look[2] = HALF_PI;
-                        break;
-                    }
-                    case IdleAction.ShootUp: {
-                        idle(controller);
-                        controller.input.look[2] = GAZE_UP; // aim near-straight up
-                        if (wiz) wiz.casting = true; // celebratory fountain
-                        break;
-                    }
-                    default: {
-                        // Loiter — just stand a beat, gaze level.
-                        idle(controller);
-                        controller.input.look[2] = HALF_PI;
-                        break;
-                    }
-                }
-                continue;
+            // arbitrate, then act. on a behaviour switch, drop the shared path so the new
+            // behaviour repaths toward its own goal rather than walking a stale one.
+            const behavior = pickBehavior(c);
+            if (behavior.name !== brain.active) {
+                brain.active = behavior.name;
+                brain.path = [];
+                brain.waypoint = 0;
+                brain.repathIn = 0;
             }
+            const intent = behavior.act(c);
 
-            // engaged: within cast range with a clear shot → circle-strafe the
-            // target, hop intermittently, and hold a burst window open (don't close to melee).
-            const eye: Vec3 = [pos[0], pos[1] + EYE_HEIGHT, pos[2]];
-            const aimPoint: Vec3 = [target[0], target[1] + CHEST_OFFSET, target[2]];
-            const toAimX = aimPoint[0] - eye[0];
-            const toAimY = aimPoint[1] - eye[1];
-            const toAimZ = aimPoint[2] - eye[2];
-            const inCastRange = toAimX * toAimX + toAimY * toAimY + toAimZ * toAimZ < CAST_RANGE * CAST_RANGE;
-            if (inCastRange && clearShot(eye, aimPoint)) {
-                // aim at the target (chest) — yaw + pitch into the same `look` the
-                // server firing tick reads via lookDirection (identical for npcs + players).
-                aimAt(controller, eye, aimPoint);
-
-                // strafe sideways (facing the player → move[0] is left/right),
-                // reversing direction on a jittered timer so they weave both ways.
-                brain.strafeIn -= delta;
-                if (brain.strafeIn <= 0) {
-                    brain.strafeDir = -brain.strafeDir;
-                    brain.strafeIn = STRAFE_FLIP_MIN + Math.random() * (STRAFE_FLIP_MAX - STRAFE_FLIP_MIN);
+            // stuck guard: while a behaviour is trying to travel, watch real ground
+            // progress over a sliding window. no progress ⇒ its goal is unreachable
+            // (wedged on geometry / a bad path) → let it bail (blacklist + re-route) so
+            // we never stand shoving into a wall. deliberate stands (travel=false) reset it.
+            if (intent.travel) {
+                brain.progress += Math.hypot(pos[0] - brain.lastPos[0], pos[2] - brain.lastPos[2]);
+                brain.stuckTimer += delta;
+                if (brain.stuckTimer >= STUCK_WINDOW) {
+                    if (brain.progress < STUCK_MIN_PROGRESS) {
+                        if (DEBUG_NPC) console.warn(`[npc] ${npc._node.name} stuck in ${behavior.name} — bailing`);
+                        behavior.onStuck?.(c);
+                    }
+                    brain.stuckTimer = 0;
+                    brain.progress = 0;
                 }
-                controller.input.move[0] = brain.strafeDir;
-                controller.input.move[1] = 0;
-
-                // hop intermittently (one-tick press → single jump).
-                brain.jumpIn -= delta;
-                controller.input.jump = brain.jumpIn <= 0;
-                if (brain.jumpIn <= 0) brain.jumpIn = JUMP_INTERVAL_MIN + Math.random() * (JUMP_INTERVAL_MAX - JUMP_INTERVAL_MIN);
-
-                // hold the burst window open / closed; the server fires at
-                // stats.fireRate for as long as `casting` is held.
-                brain.fireWindowIn -= delta;
-                if (brain.fireWindowIn <= 0) {
-                    brain.firing = !brain.firing;
-                    brain.fireWindowIn = brain.firing ? NPC_BURST_DURATION : NPC_BURST_PAUSE;
-                }
-                if (wiz) wiz.casting = brain.firing;
-                continue;
+            } else {
+                brain.stuckTimer = 0;
+                brain.progress = 0;
             }
+            brain.lastPos[0] = pos[0];
+            brain.lastPos[1] = pos[1];
+            brain.lastPos[2] = pos[2];
 
-            // chase: path toward the nearest target (shares the per-tick A* budget;
-            // NPCs due past the budget are serviced on a later tick, which staggers
-            // them off each other). reaching the path's end still out of cast range idles.
-            if (stepToward(brain, controller, pos, worldToCell(target)) === 'arrived') idle(controller);
+            applyIntent(controller, wiz, intent);
         }
     });
 });
@@ -2563,7 +2884,17 @@ const dustParticleFor = (sprite: SpriteHandle): ParticleHandle => {
     let p = dustFx.get(sprite.spriteId);
     if (!p) {
         const id = `wizards:dust:${sprite.spriteId}`;
-        p = { typeId: id, name: id, dependency: { registry: 'particles', id }, sprite, playback: 'stretch', fps: 0, update: dustMotion, glow: 0, tint: [1, 1, 1, 1] };
+        p = {
+            typeId: id,
+            name: id,
+            dependency: { registry: 'particles', id },
+            sprite,
+            playback: 'stretch',
+            fps: 0,
+            update: dustMotion,
+            glow: 0,
+            tint: [1, 1, 1, 1],
+        };
         dustFx.set(sprite.spriteId, p);
     }
     return p;
@@ -2630,7 +2961,7 @@ function muzzleBurst(ctx: ScriptContext, at: Vec3, forward: Vec3): void {
         spawnParticle(ctx, ImpactFx, at, {
             lifetime: varyLife(MUZZLE_LIFE),
             size: MUZZLE_SIZE,
-            emissive: 1,
+            glow: 1,
             velX: forward[0] * MUZZLE_SPEED + s[0] * MUZZLE_SCATTER,
             velY: forward[1] * MUZZLE_SPEED + s[1] * MUZZLE_SCATTER,
             velZ: forward[2] * MUZZLE_SPEED + s[2] * MUZZLE_SCATTER,
@@ -2651,7 +2982,6 @@ function chargeGlow(ctx: ScriptContext, at: Vec3): void {
         lifetime: varyLife(CHARGE_LIFE),
         size: CHARGE_SIZE,
         glow: 1,
-        emissive: 1,
         velX: v[0] * CHARGE_SWIRL,
         velY: v[1] * CHARGE_SWIRL,
         velZ: v[2] * CHARGE_SWIRL,
@@ -2672,11 +3002,17 @@ const MAX_BOLT_DAMAGE = lvlValue('damage', STAT_TABLE.damage.max);
 const BOLT_SCALE_MIN = 0.34; // base-damage bolt
 const BOLT_SCALE_MAX = 2.6; // max-damage bolt
 const boltScale = (damage: number): number => {
-    const t = Math.max(0, Math.min(1, (damage - DEFAULT_PROJECTILE_STATS.damage) / (MAX_BOLT_DAMAGE - DEFAULT_PROJECTILE_STATS.damage)));
+    const t = Math.max(
+        0,
+        Math.min(1, (damage - DEFAULT_PROJECTILE_STATS.damage) / (MAX_BOLT_DAMAGE - DEFAULT_PROJECTILE_STATS.damage)),
+    );
     return BOLT_SCALE_MIN + (BOLT_SCALE_MAX - BOLT_SCALE_MIN) * t;
 };
 
-function spawnClientBolt(ctx: ScriptContext, info: { id: number; ownerId: number; origin: Vec3; aim: Quat; stats: ProjectileStats; spawnTime: number }): void {
+function spawnClientBolt(
+    ctx: ScriptContext,
+    info: { id: number; ownerId: number; origin: Vec3; aim: Quat; stats: ProjectileStats; spawnTime: number },
+): void {
     const node = createNode({ name: 'bolt', realm: 'client' });
     setPosition(addTrait(node, TransformTrait), info.origin);
     addTrait(node, ProjectileTrait, {
@@ -2738,7 +3074,11 @@ script(WorldTrait, 'combat-vfx', (ctx) => {
             }
         } else {
             // another wizard's cast: positional sound + a world-space muzzle at its staff.
-            playAt(ctx, sounds.cast, [origin[0], origin[1], origin[2]], { volume: 0.4, falloff: { ref: 6, rolloff: 0.9 }, detune: (Math.random() * 2 - 1) * 150 });
+            playAt(ctx, sounds.cast, [origin[0], origin[1], origin[2]], {
+                volume: 0.4,
+                falloff: { ref: 6, rolloff: 0.9 },
+                detune: (Math.random() * 2 - 1) * 150,
+            });
             muzzleBurst(ctx, [origin[0], origin[1], origin[2]], vec3.transformQuat(_muzzleFwd, [0, 0, -1], aim as Quat));
         }
     });
@@ -2780,7 +3120,7 @@ script(WorldTrait, 'combat-vfx', (ctx) => {
             spawnParticle(ctx, fx, at, {
                 lifetime: varyLife(0.7),
                 size: 0.08,
-                emissive: 1,
+                glow: 1,
                 velX: d[0] * 3.5,
                 velY: d[1] * 3.5 + 1.5,
                 velZ: d[2] * 3.5,
@@ -2875,7 +3215,10 @@ script(WorldTrait, 'wizard-visuals', (ctx) => {
     const _npRay = createVoxelRaycastResult(); // reused for nameplate occlusion checks
 
     type Hat = { node: Node; spawnTime: number; startX: number; startY: number; startZ: number; floorY: number; baseRot: Quat };
-    const state = new Map<number, { dither: number; dead: boolean; flash: number; prevHealth: number; npSig: string; hatLevel: number; chargeAccum: number }>();
+    const state = new Map<
+        number,
+        { dither: number; dead: boolean; flash: number; prevHealth: number; npSig: string; hatLevel: number; chargeAccum: number }
+    >();
     const _wvTip = vec3.create(); // scratch for the third-person staff-tip charge glow
     const hats: Hat[] = [];
 
@@ -2915,7 +3258,15 @@ script(WorldTrait, 'wizard-visuals', (ctx) => {
             if (mesh) setMeshTint(mesh, color);
         });
         addChild(ctx.node, node);
-        hats.push({ node, spawnTime: now, startX: wp[0], startY: wp[1], startZ: wp[2], floorY: feet[1] + 0.1, baseRot: [wq[0], wq[1], wq[2], wq[3]] });
+        hats.push({
+            node,
+            spawnTime: now,
+            startX: wp[0],
+            startY: wp[1],
+            startZ: wp[2],
+            floorY: feet[1] + 0.1,
+            baseRot: [wq[0], wq[1], wq[2], wq[3]],
+        });
     };
 
     // build a wizard's nameplate DOM — name + level over an hp bar, outlined for
@@ -2954,7 +3305,9 @@ script(WorldTrait, 'wizard-visuals', (ctx) => {
         const controlId = controlNode?.id ?? -1; // skip our own nameplate
         // our own wizard's tip glow is the first-person viewmodel's job (see `viewmodel`)
         // while we're in first person; in third person the rig-staff glow below covers it.
-        const localFirstPerson = controlNode ? getTrait(controlNode, PlayerControllerTrait)?.config.perspective === 'first' : false;
+        const localFirstPerson = controlNode
+            ? getTrait(controlNode, PlayerControllerTrait)?.config.perspective === 'first'
+            : false;
         const camPos = getWorldPosition(getTrait(resolveCamera(ctx).node, TransformTrait)!);
 
         for (const [wizard, transform] of wizards) {
@@ -3054,7 +3407,19 @@ script(WorldTrait, 'wizard-visuals', (ctx) => {
                 let visible = !dead && camDist < NAMEPLATE_MAX_DIST;
                 if (visible) {
                     // occluded if terrain is hit before reaching the wizard.
-                    raycastVoxels(_npRay, ctx.voxels, ctx.voxels.registry, camPos[0], camPos[1], camPos[2], hx / camDist, hy / camDist, hz / camDist, camDist, 0);
+                    raycastVoxels(
+                        _npRay,
+                        ctx.voxels,
+                        ctx.voxels.registry,
+                        camPos[0],
+                        camPos[1],
+                        camPos[2],
+                        hx / camDist,
+                        hy / camDist,
+                        hz / camDist,
+                        camDist,
+                        0,
+                    );
                     if (_npRay.hit && _npRay.distance < camDist) visible = false;
                 }
                 const el = getTrait(plate, HtmlTrait)!.element;
@@ -3154,8 +3519,7 @@ script(WorldTrait, 'hud', (ctx) => {
     const healthBar = makeBar('#e8324a');
     const xpBar = makeBar('#8ce06e');
     const bottom = document.createElement('div');
-    bottom.style.cssText =
-        `position:absolute; left:50%; bottom:24px; transform:translateX(-50%); display:flex; flex-direction:column; align-items:center; gap:6px; font-family:ui-monospace,monospace; pointer-events:none; z-index:${UILayer.hud};`;
+    bottom.style.cssText = `position:absolute; left:50%; bottom:24px; transform:translateX(-50%); display:flex; flex-direction:column; align-items:center; gap:6px; font-family:ui-monospace,monospace; pointer-events:none; z-index:${UILayer.hud};`;
     bottom.append(healthBar.wrap, xpBar.wrap);
 
     // leaderboard (top-right): a dark rounded panel with a Name | K | D table.
@@ -3186,7 +3550,8 @@ script(WorldTrait, 'hud', (ctx) => {
         // stat-colour Lucide icon + bold outlined label; a [N] keytag and a
         // colour-matched + button at the right. collapsed, it's just icon + level.
         const pill = document.createElement('div');
-        pill.style.cssText = 'position:relative; display:flex; align-items:center; height:28px; border-radius:14px; background:#383838; overflow:hidden; padding-right:3px;';
+        pill.style.cssText =
+            'position:relative; display:flex; align-items:center; height:28px; border-radius:14px; background:#383838; overflow:hidden; padding-right:3px;';
         const fill = document.createElement('div');
         fill.style.cssText = `position:absolute; left:0; top:0; bottom:0; width:0%; background:${color}; opacity:0.55;`;
         const icon = document.createElement('span');
@@ -3292,7 +3657,8 @@ script(WorldTrait, 'hud', (ctx) => {
         // number; when points are up it expands rightward to the full-width pills
         // with labels, + buttons, and [N] keytags, plus the "N to spend" footer.
         const lvls = wiz ? wiz.stats.levels : null;
-        const pSig = wiz && lvls ? `${levelForXp(wiz.xp)}:${availablePoints(wiz.xp, lvls)}:${STAT_KEYS.map((k) => lvls[k]).join('')}` : '';
+        const pSig =
+            wiz && lvls ? `${levelForXp(wiz.xp)}:${availablePoints(wiz.xp, lvls)}:${STAT_KEYS.map((k) => lvls[k]).join('')}` : '';
         if (pSig !== panelSig) {
             panelSig = pSig;
             const pts = wiz && lvls ? availablePoints(wiz.xp, lvls) : 0;
@@ -3375,7 +3741,10 @@ script(WorldTrait, 'hud', (ctx) => {
                 cell('K', 'font-weight:bold; text-align:center; color:#9be88a;'),
                 cell('D', 'font-weight:bold; text-align:center; color:#e88a8a;'),
                 ...rows.flatMap((w) => [
-                    cell(w.name || '…', `white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:${mobile ? 80 : 130}px;`),
+                    cell(
+                        w.name || '…',
+                        `white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:${mobile ? 80 : 130}px;`,
+                    ),
                     cell(`${w.kills}`, 'text-align:center;'),
                     cell(`${w.deaths}`, 'text-align:center;'),
                 ]),
