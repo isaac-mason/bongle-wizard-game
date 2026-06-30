@@ -7,19 +7,5 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - run: npm install
-
-      - run: npm run build
-
-      - name: Deploy to bongle
-        env:
-          BONGLE_DEPLOY_TOKEN: ${{ secrets.BONGLE_DEPLOY_TOKEN }}
-        run: npx -y github:isaac-mason/bongle-cli deploy --bundle dist/bundle.zip
+    uses: isaac-mason/bongle-github/.github/workflows/deploy-game.yml@main
+    secrets: inherit
