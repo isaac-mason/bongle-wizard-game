@@ -2141,7 +2141,15 @@ script(WorldTrait, 'npcs', (ctx) => {
     // applyIntent, so a single reused instance avoids per-tick garbage. every
     // intent-returning path writes through setIntent into this shared object.
     const _intent: Intent = { move: [0, 0], yaw: 0, pitch: 0, jump: false, fire: false, travel: false };
-    const setIntent = (moveX: number, moveY: number, yaw: number, pitch: number, jump: boolean, fire: boolean, travel: boolean): Intent => {
+    const setIntent = (
+        moveX: number,
+        moveY: number,
+        yaw: number,
+        pitch: number,
+        jump: boolean,
+        fire: boolean,
+        travel: boolean,
+    ): Intent => {
         _intent.move[0] = moveX;
         _intent.move[1] = moveY;
         _intent.yaw = yaw;
@@ -2162,7 +2170,12 @@ script(WorldTrait, 'npcs', (ctx) => {
         controller.input.move[1] = intent.move[1];
         controller.input.look[1] = intent.yaw;
         controller.input.look[2] = intent.pitch;
-        controller.input.jump = intent.jump;
+        // a travel intent's jump is a path step-up. nav emits a +1 stand cell for any rise,
+        // including half-height slabs/stairs the 0.55 auto-step walks up unaided — so don't
+        // blanket-hop those. only jump once the auto-step has actually STALLED
+        // (`horizontalCollision`: wanted to advance, couldn't clear what's ahead) = a genuine
+        // full block. deliberate combat/strafe hops (travel:false) pass straight through.
+        controller.input.jump = intent.travel ? intent.jump && controller.state.horizontalCollision : intent.jump;
         if (wiz) wiz.casting = intent.fire; // the server firing tick fires while held
     };
 
@@ -2255,8 +2268,18 @@ script(WorldTrait, 'npcs', (ctx) => {
         }
         if (brain.waypoint >= brain.path.length) return 'arrived';
         const cell = brain.path[brain.waypoint]!;
-        // move forward toward the waypoint, level gaze, hop up steps.
-        return setIntent(0, 1, Math.atan2(-(cell[0] + 0.5 - pos[0]), -(cell[2] + 0.5 - pos[2])), HALF_PI, cell[1] > Math.floor(pos[1]), false, true);
+        // move forward toward the waypoint, level gaze. an up-waypoint requests a step-up; the
+        // actual hop-vs-walk is gated in applyIntent (only hops a full block that stalls the
+        // auto-step, so half-height slabs/stairs are walked, not pogo'd).
+        return setIntent(
+            0,
+            1,
+            Math.atan2(-(cell[0] + 0.5 - pos[0]), -(cell[2] + 0.5 - pos[2])),
+            HALF_PI,
+            cell[1] > Math.floor(pos[1]),
+            false,
+            true,
+        );
     };
 
     // nearest live gem within `maxDist` of `pos` (world position), or null. writes a
