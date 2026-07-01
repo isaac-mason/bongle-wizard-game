@@ -25,7 +25,7 @@ import {
     getBlock,
     getBlockState,
     getCanvasTouches,
-    getPov,
+    getSubject,
     getTrait,
     getWorldMatrix,
     getWorldPosition,
@@ -58,7 +58,7 @@ import {
     raycastVoxels,
     releaseAvatar,
     removeTrait,
-    resolveCamera,
+    getCamera,
     rooms,
     type ScriptContext,
     SERVER_TO_CLIENT,
@@ -1240,7 +1240,7 @@ script(WorldTrait, 'combat-cast', (ctx) => {
     // via ProjectileCast / ImpactCommand, rendered in combat-vfx). no prediction. ──
     if (env.client) {
         onFrame(ctx, () => {
-            const controlNode = getPov(ctx);
+            const controlNode = getSubject(ctx);
             const pc = controlNode && getTrait(controlNode, PlayerControllerTrait);
 
             const selfWizard = controlNode && getTrait(controlNode, WizardTrait);
@@ -1285,7 +1285,7 @@ script(WorldTrait, 'combat-cast', (ctx) => {
         // add it to our own controller velocity; owner-authority replicates the
         // shove out, so the server + other clients see the same motion.
         listen(ctx, KnockbackCommand, ({ impulse }) => {
-            const node = getPov(ctx);
+            const node = getSubject(ctx);
             const cc = node && getTrait(node, CharacterControllerTrait);
             if (cc) {
                 cc.state.velocity[0] += impulse[0];
@@ -1757,7 +1757,7 @@ script(WorldTrait, 'xp', (ctx) => {
             // pickup blip — our own xp is synced, so just play when it ticks up
             // (covers magnetised orbs without a dedicated command). first sight
             // seeds lastXp so we don't blip on join / initial sync.
-            const self = getPov(ctx);
+            const self = getSubject(ctx);
             const selfWiz = self && getTrait(self, WizardTrait);
             if (selfWiz) {
                 // luanti-style: randomise pitch down a little each pickup so rapid
@@ -1935,7 +1935,7 @@ script(WorldTrait, 'gems', (ctx) => {
 
         onFrame(ctx, () => {
             const time = ctx.clock.wall; // smooth per-frame clock → no 60Hz step in the spin/bob
-            const camPos = getWorldPosition(getTrait(resolveCamera(ctx).node, TransformTrait)!);
+            const camPos = getWorldPosition(getTrait(getCamera(ctx)!, TransformTrait)!);
             for (const [gem, transform] of gems) {
                 const gemNode = transform._node;
                 const tier = GEM_TIERS[gem.tier] ?? GEM_TIERS[0]!;
@@ -2809,7 +2809,7 @@ script(WorldTrait, 'viewmodel', (ctx) => {
     const _viewmodelRot = quat.create(); // scratch for the per-frame staff pose
 
     onFrame(ctx, ({ delta }) => {
-        const { node: cameraNode } = resolveCamera(ctx);
+        const cameraNode = getCamera(ctx)!;
 
         // build the viewmodel once, under whichever camera is current.
         let viewmodel = findChildByName(cameraNode, 'viewmodel:staff');
@@ -2830,7 +2830,7 @@ script(WorldTrait, 'viewmodel', (ctx) => {
         }
 
         // visible only to the local player, only in first person.
-        const controlNode = getPov(ctx);
+        const controlNode = getSubject(ctx);
         const playerController = controlNode && getTrait(controlNode, PlayerControllerTrait);
         const firstPerson = !!playerController && playerController.config.perspective === 'first';
         traverse(viewmodel, (node) => {
@@ -3083,7 +3083,7 @@ script(WorldTrait, 'combat-vfx', (ctx) => {
             spawnTime,
         });
 
-        const controlNode = getPov(ctx);
+        const controlNode = getSubject(ctx);
         if (controlNode && ownerId === controlNode.id) {
             // our own cast: loud non-positional sound; stamp the cast edge so the
             // viewmodel fires the muzzle + recoil at the staff tip in view.
@@ -3324,14 +3324,14 @@ script(WorldTrait, 'wizard-visuals', (ctx) => {
     // death dither — plus the dropped-hat sim.
     onFrame(ctx, ({ delta }) => {
         const now = ctx.clock.time;
-        const controlNode = getPov(ctx);
+        const controlNode = getSubject(ctx);
         const controlId = controlNode?.id ?? -1; // skip our own nameplate
         // our own wizard's tip glow is the first-person viewmodel's job (see `viewmodel`)
         // while we're in first person; in third person the rig-staff glow below covers it.
         const localFirstPerson = controlNode
             ? getTrait(controlNode, PlayerControllerTrait)?.config.perspective === 'first'
             : false;
-        const camPos = getWorldPosition(getTrait(resolveCamera(ctx).node, TransformTrait)!);
+        const camPos = getWorldPosition(getTrait(getCamera(ctx)!, TransformTrait)!);
 
         for (const [wizard, transform] of wizards) {
             const node = transform._node;
@@ -3641,7 +3641,7 @@ script(WorldTrait, 'hud', (ctx) => {
         }
 
         // local player's wizard drives the health bar + upgrade panel.
-        const controlNode = getPov(ctx);
+        const controlNode = getSubject(ctx);
         const wiz = controlNode && getTrait(controlNode, WizardTrait);
 
         // health bar — current vs the derived max.
@@ -3797,7 +3797,7 @@ script(WorldTrait, 'death-cam', (ctx) => {
     let relockTries = 0; // re-grab attempts after death frees the pointer lock
 
     onFrame(ctx, ({ delta }) => {
-        const node = getPov(ctx);
+        const node = getSubject(ctx);
         if (!node || getTrait(node, PlayerControllerTrait)) {
             relockTries = 3; // alive: re-arm the re-grab for the next death
             return; // alive → PC drives
@@ -3827,7 +3827,7 @@ script(WorldTrait, 'death-cam', (ctx) => {
             center[1] + ORBIT_HEIGHT,
             center[2] + Math.sin(angle) * ORBIT_RADIUS,
         ];
-        const camTransform = getTrait(resolveCamera(ctx).node, TransformTrait)!;
+        const camTransform = getTrait(getCamera(ctx)!, TransformTrait)!;
         setWorldPosition(camTransform, camPos);
         mat4.targetTo(_deathLookMat, camPos, [center[0], center[1] + LOOK_HEIGHT, center[2]], [0, 1, 0]);
         quat.fromMat4(_deathCamQuat, _deathLookMat);
